@@ -52,3 +52,8 @@ save_file = os.path.join("data", "asn_to_ip_prefix.json")
 f = open(save_file, "w")
 json.dump(asn_to_ip_prefix, f)
 print("Saved dict asn_to_ip_prefix to {}".format(save_file))
+
+save_file = os.path.join("data", "ip_prefix_to_asn.json")
+f = open(save_file, "w")
+json.dump(ip_prefix_to_asn, f)
+print("Saved dict ip_prefix_to_asn to {}".format(save_file))
