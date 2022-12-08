@@ -1,5 +1,6 @@
-import json, os, config
+import json, os, config, time
 import argparse
+import random, math
 
 # Load bitnodes counting dicts
 save_file = os.path.join("data", "b_asn.json")
@@ -79,16 +80,81 @@ def add_prefix(selected_prefixes, selected_prefixes_score, new_prefix):
             new_selected_prefixes_score += b_ip_prefix[new_prefix] * b_asn[follower]
     return new_selected_prefixes_score
 
-def choose_prefixes(initial_scores_dict, k):
+
+def get_score(selected_prefixes):
+    P = []
+    score = 0
+    for pf in selected_prefixes:
+        score = add_prefix(P, score, pf)
+        P.append(pf)
+    return score
+
+
+def choose_prefixes_LazyGreedy(initial_scores_dict, k):
     """Choose the best `k` ip prefixes to hijack to capture the most connections
     """
+    print(f"[LazyGreedy] k: {k}")
+    
     selected_prefixes = []
     prefixes = list(initial_scores_dict.keys())
     scores = list(initial_scores_dict.values())
     
     # Sort the ip prefixes by their initial score in decreasing order
-    # prefixes.sort(reverse=True, key=lambda x:initial_scores_dict[x])
-    # scores = [initial_scores_dict[i] for i in prefixes]
+    tmp = sorted(zip(scores, prefixes), reverse=True)
+    scores = [x[0] for x in tmp]
+    prefixes = [x[1] for x in tmp]
+    
+    # First select the ip prefix with the highest
+    selected_prefixes.append(prefixes[0])
+    selected_prefixes_score = scores[0]
+    prefixes.pop(0)
+    scores.pop(0)
+    
+    for i in range(1, k):
+        while len(selected_prefixes) <= i:
+            new_prefix = prefixes[0]
+            new_selected_prefixes_score = add_prefix(selected_prefixes, selected_prefixes_score, new_prefix)
+            increment = new_selected_prefixes_score - selected_prefixes_score
+            scores[0] = increment # update the top score
+            
+            if scores[0] >= scores[1]:
+                selected_prefixes.append(new_prefix)
+                selected_prefixes_score = new_selected_prefixes_score
+                prefixes.pop(0)
+                scores.pop(0)
+            else:
+                # tmp = sorted(zip(scores, prefixes), reverse=True)
+                # scores = [x[0] for x in tmp]
+                # prefixes = [x[1] for x in tmp]
+
+                new_score = scores[0]
+                new_prefix = prefixes[0]
+                for k in range(1, len(scores)):
+                    insert_idx = k - 1
+                    if scores[k] <= new_score: break
+                scores[:insert_idx] = scores[1:insert_idx+1]
+                scores[insert_idx] = new_score
+                prefixes[:insert_idx] = prefixes[1:insert_idx+1]
+                prefixes[insert_idx] = new_prefix
+                        
+    
+    print("Selected prefixes:", selected_prefixes)
+    print("Captured connections num:", selected_prefixes_score)
+    return selected_prefixes
+
+
+def choose_prefixes_StochasticGreedy(initial_scores_dict, k, eps=0.1):
+    """Choose the best `k` ip prefixes to hijack to capture the most connections
+    """
+    print(f"[StochasticGreedy] k: {k}")
+    
+    selected_prefixes = []
+    prefixes = list(initial_scores_dict.keys())
+    scores = list(initial_scores_dict.values())
+    sample_size = int(len(prefixes) / k * math.log(1 / eps))
+    print("Sampling size:", sample_size)
+    
+    # Sort the ip prefixes by their initial score in decreasing order
     prefixes = [x for _, x in sorted(zip(scores, prefixes), reverse=True)]
     scores.sort(reverse=True)
     
@@ -99,32 +165,158 @@ def choose_prefixes(initial_scores_dict, k):
     scores.pop(0)
     
     for i in range(1, k):
-        while len(selected_prefixes) < i + 1:
-            new_prefix = prefixes[0]
+        R_idx = random.choices(list(range(len(prefixes))), k=sample_size)
+        R_idx.sort()
+        R_prefixes = [prefixes[i] for i in R_idx]
+        R_scores = [scores[i] for i in R_idx]
+        
+        while len(selected_prefixes) <= i:
+            new_prefix = R_prefixes[0]
             new_selected_prefixes_score = add_prefix(selected_prefixes, selected_prefixes_score, new_prefix)
             increment = new_selected_prefixes_score - selected_prefixes_score
-            scores[0] = increment # update the top score
+            R_scores[0] = scores[R_idx[0]] = increment # update the top score
             
-            if scores[0] > scores[1]:
+            if R_scores[0] >= R_scores[1]:
                 selected_prefixes.append(new_prefix)
                 selected_prefixes_score = new_selected_prefixes_score
-                prefixes.pop(0)
-                scores.pop(0)
+                prefixes.pop(R_idx[0])
+                scores.pop(R_idx[0])
+                
+                tmp = sorted(zip(scores, prefixes), reverse=True)
+                scores = [x[0] for x in tmp]
+                prefixes = [x[1] for x in tmp]
             else:
-                prefixes = [x for _, x in sorted(zip(scores, prefixes), reverse=True)]
-                scores.sort(reverse=True)
+                # tmp = sorted(zip(R_scores, R_prefixes, R_idx), reverse=True)
+                # R_scores = [x[0] for x in tmp]
+                # R_prefixes = [x[1] for x in tmp]
+                # R_idx = [x[2] for x in tmp]
+                
+                new_score = R_scores[0]
+                new_prefix = R_prefixes[0]
+                new_idx = R_idx[0]
+                for k in range(1, len(R_scores)):
+                    insert_idx = k - 1
+                    if R_scores[k] <= new_score: break
+                
+                R_scores[:insert_idx] = R_scores[1:insert_idx+1]
+                R_scores[insert_idx] = new_score
+                R_prefixes[:insert_idx] = R_prefixes[1:insert_idx+1]
+                R_prefixes[insert_idx] = new_prefix
+                R_idx[:insert_idx] = R_idx[1:insert_idx+1]
+                R_idx[insert_idx] = new_idx
+                
     
     print("Selected prefixes:", selected_prefixes)
     print("Captured connections num:", selected_prefixes_score)
     return selected_prefixes
 
 
+# def choose_prefixes_StochasticGreedy(initial_scores_dict, k, eps=0.1):
+#     """Choose the best `k` ip prefixes to hijack to capture the most connections
+#     """
+#     print(f"[StochasticGreedy] k: {k}")
+
+#     selected_prefixes = []
+#     prefixes = list(initial_scores_dict.keys())
+#     scores = [1e8 for i in range(len(prefixes))]
+#     sample_size = int(len(prefixes) / k * math.log(1 / eps))
+#     print("Sampling size:", sample_size)
+    
+#     # Sort the ip prefixes by their initial score in decreasing order
+#     # prefixes = [x for _, x in sorted(zip(scores, prefixes), reverse=True)]
+#     # scores.sort(reverse=True)
+    
+#     # First select the ip prefix with the highest
+#     # selected_prefixes.append(prefixes[0])
+#     # selected_prefixes_score = scores[0]
+#     # prefixes.pop(0)
+#     # scores.pop(0)
+    
+#     selected_prefixes_score = 0
+    
+#     for i in range(0, k):
+#         R_idx = random.choices(list(range(len(prefixes))), k=sample_size)
+#         R_idx.sort()
+#         R_prefixes = [prefixes[i] for i in R_idx]
+#         R_scores = [scores[i] for i in R_idx]
+        
+#         while len(selected_prefixes) <= i:
+#             new_prefix = R_prefixes[0]
+#             new_selected_prefixes_score = add_prefix(selected_prefixes, selected_prefixes_score, new_prefix)
+#             increment = new_selected_prefixes_score - selected_prefixes_score
+#             R_scores[0] = scores[R_idx[0]] = increment # update the top score
+            
+#             if R_scores[0] >= R_scores[1]:
+#                 selected_prefixes.append(new_prefix)
+#                 selected_prefixes_score = new_selected_prefixes_score
+#                 prefixes.pop(R_idx[0])
+#                 scores.pop(R_idx[0])
+                
+#                 tmp = sorted(zip(scores, prefixes), reverse=True)
+#                 scores = [x[0] for x in tmp]
+#                 prefixes = [x[1] for x in tmp]
+#             else:
+#                 # tmp = sorted(zip(R_scores, R_prefixes, R_idx), reverse=True)
+#                 # R_scores = [x[0] for x in tmp]
+#                 # R_prefixes = [x[1] for x in tmp]
+#                 # R_idx = [x[2] for x in tmp]
+                
+#                 new_score = R_scores[0]
+#                 new_prefix = R_prefixes[0]
+#                 new_idx = R_idx[0]
+#                 for k in range(1, len(R_scores)):
+#                     insert_idx = k - 1
+#                     if R_scores[k] <= new_score: break
+                
+#                 R_scores[:insert_idx] = R_scores[1:insert_idx+1]
+#                 R_scores[insert_idx] = new_score
+#                 R_prefixes[:insert_idx] = R_prefixes[1:insert_idx+1]
+#                 R_prefixes[insert_idx] = new_prefix
+#                 R_idx[:insert_idx] = R_idx[1:insert_idx+1]
+#                 R_idx[insert_idx] = new_idx
+                
+    
+#     print("Selected prefixes:", selected_prefixes)
+#     print("Captured connections num:", selected_prefixes_score)
+#     return selected_prefixes
+
+
+def choose_prefixes_TopK(initial_scores_dict, k):
+    """Choose the best `k` ip prefixes to hijack to capture the most connections
+    """
+    print(f"[TopK] k: {k}")
+    
+    selected_prefixes = []
+    prefixes = list(initial_scores_dict.keys())
+    scores = list(initial_scores_dict.values())
+    
+    # Sort the ip prefixes by their initial score in decreasing order
+    prefixes = [x for _, x in sorted(zip(scores, prefixes), reverse=True)]
+    scores.sort(reverse=True)
+    
+    # First select the ip prefix with the highest
+    selected_prefixes = prefixes[:k]
+    selected_prefixes_score = get_score(selected_prefixes)
+    
+    print("Selected prefixes:", selected_prefixes)
+    print("Captured connections num:", selected_prefixes_score)
+    return selected_prefixes
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-k', type=int,  required=False)
+    parser.add_argument('-k', type=int, required=False)
+    parser.add_argument('-method', type=str, required=False, default="StochasticGreedy")
+    parser.add_argument('-eps', type=float, required=False, default=0.1)
     args = parser.parse_args()
     
-    choose_prefixes(initial_scores_dict=scores_dict, k=args.k)
+    start_time = time.perf_counter()
+    
+    if args.method == "LazyGreedy": choose_prefixes_LazyGreedy(initial_scores_dict=scores_dict, k=args.k)
+    elif args.method == "StochasticGreedy": choose_prefixes_StochasticGreedy(initial_scores_dict=scores_dict, k=args.k, eps=args.eps)
+    elif args.method == "TopK": choose_prefixes_TopK(initial_scores_dict=scores_dict, k=args.k)
+    end_time = time.perf_counter()
+    
+    print("Elapsed time: {:.2f}s".format(end_time - start_time))
 
 if __name__ == '__main__':
     main()

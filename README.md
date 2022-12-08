@@ -17,5 +17,5 @@ python rank.py
 
 To launch the main searching process, run:
 ```
-python main.py -k=5
+python main.py -k=5 -method=[LazyGreedy | StochasticGreedy | TopK] (-eps=0.01)
 ```
